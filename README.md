@@ -10,15 +10,6 @@ but adapted to a different stack:
 - `langgraph` for agent control flow and orchestration
 - `langchain-deepseek` for the DeepSeek model integration
 
-The goal is not to clone Claude Code. The goal is to learn the core harness
-patterns behind coding agents and rebuild them in a small, understandable
-codebase.
-
-## Why this repo exists
-
-`learn-claude-code` explains an important idea clearly: the model is the agent,
-and the surrounding code is the harness.
-
 This repo follows the same direction, but with LangChain/LangGraph, and DeepSeek.
 
 That means:
@@ -50,22 +41,11 @@ development.
 ### 3. Smoke test the package
 
 ```sh
-uv run -m agents.xxx"
+uv run -m lagents.xxx
 ```
-
-## Design principles
-
-- Keep the loop understandable.
-- Add one mechanism at a time.
-- Prefer real agent behaviors over prompt-plumbing demos.
-- Use frameworks as leverage, not as an excuse to hide the core pattern.
-- Stay close to the metal when abstraction hurts understanding.
 
 ## Reference
 
 This project is directly inspired by:
 
 - [`shareAI-lab/learn-claude-code`](https://github.com/shareAI-lab/learn-claude-code)
-
-That repository is the conceptual starting point. This repository is the
-LangChain + LangGraph + DeepSeek translation.
