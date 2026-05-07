@@ -21,3 +21,9 @@ build-backend = "uv_build"
 
 [tool.uv.build-backend]
 module-name = "lagents"
+
+[tool.pyright]
+include = ["src"]
+exclude = [".venv", "**/__pycache__"]
+venvPath = "."
+venv = ".venv"
