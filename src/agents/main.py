@@ -1,8 +1,13 @@
 from typing import cast
-from langchain_core.messages import HumanMessage
+from langchain_core.messages import HumanMessage, SystemMessage
 from langgraph.graph import MessagesState
 from agents import agents
 import argparse
+import os
+
+SYSTEM_PROMPT = f"""
+You are a coding agent at {os.getcwd()}. Use bash to solve tasks. Act, don't explain.
+"""
 
 
 def main() -> int:
@@ -15,6 +20,7 @@ def main() -> int:
     agent = agents[args.agent]
 
     state: MessagesState = {"messages": []}
+    state["messages"].append(SystemMessage(content=SYSTEM_PROMPT))
     while True:
         try:
             query = input("\033[36m>> \033[0m")

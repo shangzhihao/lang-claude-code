@@ -1,5 +1,6 @@
 """
-The following is from: shareAI-lab/learn-claude-code.
+This is from: shareAI-lab/learn-claude-code.
+
 The entire secret of an AI coding agent in one pattern:
 
     while stop_reason == "tool_use":
@@ -27,13 +28,14 @@ import subprocess
 from langchain_core.messages import AIMessage
 from langchain_deepseek import ChatDeepSeek
 from pydantic import SecretStr
-from langgraph.graph import StateGraph, MessagesState, START, END
+from langgraph.graph import StateGraph, MessagesState, START
 from dotenv import load_dotenv
 from langgraph.prebuilt import ToolNode, tools_condition
 from langchain.tools import tool
 
 load_dotenv(override=True)
 
+MAX_RES_LEN = 10000
 API_KEY = os.getenv("DEEPSEEK_API_KEY")
 MODEL_NAME = os.getenv("DEEPSEEK_MODEL")
 if API_KEY is None:
@@ -60,7 +62,7 @@ def run_bash(cmd: str) -> str:
             timeout=120,
         )
         output = (r.stdout + r.stderr).strip()
-        return output[:5000] if output else "no ouput"
+        return output[:MAX_RES_LEN] if output else "no ouput"
     except subprocess.TimeoutExpired:
         return "Error: timeout (120s)"
     except (FileNotFoundError, OSError) as e:
@@ -85,9 +87,7 @@ graph_builder.add_node("llm", call_llm)
 graph_builder.add_node("tools", tool_node)
 
 graph_builder.add_edge(START, "llm")
-graph_builder.add_conditional_edges(
-    "llm", tools_condition, {"tools": "tools", END: END}
-)
+graph_builder.add_conditional_edges("llm", tools_condition)
 
 graph_builder.add_edge("tools", "llm")
 
