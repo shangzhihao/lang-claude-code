@@ -24,8 +24,10 @@ policy, hooks, and lifecycle controls on top.
 
 import os
 import subprocess
+from typing import cast
+from pathlib import Path
 
-from langchain_core.messages import AIMessage
+from langchain_core.messages import AIMessage, SystemMessage, HumanMessage
 from langchain_deepseek import ChatDeepSeek
 from pydantic import SecretStr
 from langgraph.graph import StateGraph, MessagesState, START
@@ -44,6 +46,9 @@ API_KEY = SecretStr(API_KEY)
 if MODEL_NAME is None:
     MODEL_NAME = "deepseek-chat"
 LLM_MODEL = ChatDeepSeek(model=MODEL_NAME, api_key=API_KEY)
+WORK_DIR = Path.cwd()
+
+SYSTEM_PROMPT = f"You are a coding agent at {WORK_DIR}. Use bash to solve tasks. Act, don't explain."
 
 
 @tool
@@ -93,3 +98,25 @@ graph_builder.add_edge("tools", "llm")
 
 
 graph = graph_builder.compile()
+
+
+def main() -> int:
+    state: MessagesState = {"messages": []}
+    state["messages"].append(SystemMessage(content=SYSTEM_PROMPT))
+    while True:
+        try:
+            query = input("\033[36m>> \033[0m")
+        except EOFError, KeyboardInterrupt:
+            break
+        if query.strip().lower() in ("q", "exit", ""):
+            break
+        before = len(state["messages"])
+        state["messages"].append(HumanMessage(content=query))
+        state = cast(MessagesState, graph.invoke(state))
+        for message in state["messages"][before:]:
+            message.pretty_print()
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

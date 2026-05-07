@@ -13,8 +13,9 @@ dependencies = [
 ]
 
 [project.scripts]
-agents = "agents.main:main"
-lagents = "agents.main:main"
+v01 = "agents.v01loop:main"
+v02 = "agents.v02tools:main"
+v03 = "agents.v03todo:main"
 
 [build-system]
 requires = ["uv_build>=0.11.8,<0.12.0"]

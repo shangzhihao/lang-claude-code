@@ -25,11 +25,12 @@ forces it to keep updating when it forgets.
 Key insight: "The agent can track its own progress -- and I can see it."
 """
 
-from enum import Enum
+from enum import StrEnum, auto
 import os
 import subprocess
+from typing import cast
 
-from langchain_core.messages import AIMessage, ToolMessage
+from langchain_core.messages import AIMessage, ToolMessage, SystemMessage, HumanMessage
 from langchain_deepseek import ChatDeepSeek
 from langgraph.types import Command
 from pydantic import BaseModel, SecretStr
@@ -40,6 +41,7 @@ from langchain.tools import ToolRuntime, tool
 from pathlib import Path
 
 load_dotenv(override=True)
+
 
 MAX_RES_LEN = 10000
 MAX_LINES = 500
@@ -55,10 +57,18 @@ LLM_MODEL = ChatDeepSeek(model=MODEL_NAME, api_key=API_KEY)
 WORK_DIR = Path.cwd()
 
 
-class TodoState(Enum):
-    TODO = "todo"
-    DOING = "doing"
-    DONE = "done"
+SYSTEM_PROMPT = f"""
+You are a coding agent at {WORK_DIR}.
+Use the todo tool to plan multi-step tasks.
+Mark in_progress before starting, completed when done.
+Prefer tools over prose.
+"""
+
+
+class TodoState(StrEnum):
+    TODO = auto()
+    DOING = auto()
+    DONE = auto()
 
 
 class TodoItem(BaseModel):
@@ -172,7 +182,7 @@ def call_llm(state: AgentState) -> dict[str, list[AIMessage]]:
     return {"messages": [response]}
 
 
-graph_builder = StateGraph(MessagesState)
+graph_builder = StateGraph(AgentState)
 graph_builder.add_node("llm", call_llm)
 graph_builder.add_node("tools", tool_node)
 
@@ -183,3 +193,25 @@ graph_builder.add_edge("tools", "llm")
 
 
 graph = graph_builder.compile()
+
+
+def main() -> int:
+    state: AgentState = {"messages": [], "todos": []}
+    state["messages"].append(SystemMessage(content=SYSTEM_PROMPT))
+    while True:
+        try:
+            query = input("\033[36m>> \033[0m")
+        except EOFError, KeyboardInterrupt:
+            break
+        if query.strip().lower() in ("q", "exit", ""):
+            break
+        before = len(state["messages"])
+        state["messages"].append(HumanMessage(content=query))
+        state = cast(AgentState, graph.invoke(state))
+        for message in state["messages"][before:]:
+            message.pretty_print()
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

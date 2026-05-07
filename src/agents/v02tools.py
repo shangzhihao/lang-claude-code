@@ -19,15 +19,16 @@ Key insight: "The loop didn't change at all. I just added tools."
 
 import os
 import subprocess
+from typing import cast
+from pathlib import Path
 
-from langchain_core.messages import AIMessage
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langchain_deepseek import ChatDeepSeek
 from pydantic import SecretStr
 from langgraph.graph import StateGraph, MessagesState, START
 from dotenv import load_dotenv
 from langgraph.prebuilt import ToolNode, tools_condition
 from langchain.tools import tool
-from pathlib import Path
 
 load_dotenv(override=True)
 
@@ -43,6 +44,7 @@ if MODEL_NAME is None:
     MODEL_NAME = "deepseek-chat"
 LLM_MODEL = ChatDeepSeek(model=MODEL_NAME, api_key=API_KEY)
 WORK_DIR = Path.cwd()
+SYSTEM_PROMPT = f"You are a coding agent at {WORK_DIR}. Use tools to solve tasks. Act, don't explain."
 
 
 def safe_path(p: str) -> Path:
@@ -142,3 +144,25 @@ graph_builder.add_edge("tools", "llm")
 
 
 graph = graph_builder.compile()
+
+
+def main() -> int:
+    state: MessagesState = {"messages": []}
+    state["messages"].append(SystemMessage(content=SYSTEM_PROMPT))
+    while True:
+        try:
+            query = input("\033[36m>> \033[0m")
+        except EOFError, KeyboardInterrupt:
+            break
+        if query.strip().lower() in ("q", "exit", ""):
+            break
+        before = len(state["messages"])
+        state["messages"].append(HumanMessage(content=query))
+        state = cast(MessagesState, graph.invoke(state))
+        for message in state["messages"][before:]:
+            message.pretty_print()
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
