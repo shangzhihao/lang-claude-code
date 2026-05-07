@@ -107,6 +107,22 @@ def update_todo(todos: list[TodoItem], runtime: ToolRuntime) -> Command:
 
 
 @tool
+def get_todo(runtime: ToolRuntime) -> Command:
+    """Get the current agent todo list."""
+    todos = runtime.state["todos"]
+    return Command(
+        update={
+            "messages": [
+                ToolMessage(
+                    content=f"current todo list: {todos}",
+                    tool_call_id=runtime.tool_call_id,
+                )
+            ],
+        }
+    )
+
+
+@tool
 def run_bash(cmd: str) -> str:
     """Run a shell command in the current working directory and return output."""
     try:
@@ -188,9 +204,17 @@ def invoke_agent(task: str) -> str | list[str | dict[object, object]]:
     return res["messages"][-1].content
 
 
-tools = [run_bash, read_file, write_file, edit_file, update_todo, invoke_agent]
+tools = [
+    run_bash,
+    read_file,
+    write_file,
+    edit_file,
+    update_todo,
+    invoke_agent,
+    get_todo,
+]
 tool_node = ToolNode(
-    [run_bash, read_file, write_file, edit_file, update_todo, invoke_agent]
+    [run_bash, read_file, write_file, edit_file, update_todo, invoke_agent, get_todo]
 )
 
 
