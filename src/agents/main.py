@@ -1,7 +1,7 @@
 from typing import cast
 from langchain_core.messages import HumanMessage
 from langgraph.graph import MessagesState
-from lagents import agents
+from agents import agents
 import argparse
 
 

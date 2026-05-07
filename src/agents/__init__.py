@@ -1,4 +1,4 @@
-from lagents.v01loop import graph as loop_agent
+from agents.v01loop import graph as loop_agent
 
 agents = {"v01": loop_agent}
 
