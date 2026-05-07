@@ -1,32 +1,42 @@
 """
 This is from: shareAI-lab/learn-claude-code.
 
-The agent loop from s01 didn't change. We just added tools to the array
-and a dispatch map to route calls.
+The model tracks its own progress via a TodoManager. A nag reminder
+forces it to keep updating when it forgets.
 
-    +----------+      +-------+      +------------------+
-    |   User   | ---> |  LLM  | ---> | Tool Dispatch    |
-    |  prompt  |      |       |      | {                |
-    +----------+      +---+---+      |   bash: run_bash |
-                          ^          |   read: read     |
-                          |          |   write: write   |
-                          +----------+   edit: edit     |
-                          tool_result| }                |
-                                     +------------------+
+    +----------+      +-------+      +---------+
+    |   User   | ---> |  LLM  | ---> | Tools   |
+    |  prompt  |      |       |      | + todo  |
+    +----------+      +---+---+      +----+----+
+                          ^               |
+                          |   tool_result |
+                          +---------------+
+                                |
+                    +-----------+-----------+
+                    | TodoManager state     |
+                    | [ ] task A            |
+                    | [>] task B <- doing   |
+                    | [x] task C            |
+                    +-----------------------+
+                                |
+                    if rounds_since_todo >= 3:
+                      inject <reminder>
 
-Key insight: "The loop didn't change at all. I just added tools."
+Key insight: "The agent can track its own progress -- and I can see it."
 """
 
+from enum import Enum
 import os
 import subprocess
 
-from langchain_core.messages import AIMessage
+from langchain_core.messages import AIMessage, ToolMessage
 from langchain_deepseek import ChatDeepSeek
-from pydantic import SecretStr
+from langgraph.types import Command
+from pydantic import BaseModel, SecretStr
 from langgraph.graph import StateGraph, MessagesState, START
 from dotenv import load_dotenv
 from langgraph.prebuilt import ToolNode, tools_condition
-from langchain.tools import tool
+from langchain.tools import ToolRuntime, tool
 from pathlib import Path
 
 load_dotenv(override=True)
@@ -45,6 +55,21 @@ LLM_MODEL = ChatDeepSeek(model=MODEL_NAME, api_key=API_KEY)
 WORK_DIR = Path.cwd()
 
 
+class TodoState(Enum):
+    TODO = "todo"
+    DOING = "doing"
+    DONE = "done"
+
+
+class TodoItem(BaseModel):
+    title: str
+    status: TodoState
+
+
+class AgentState(MessagesState):
+    todos: list[TodoItem]
+
+
 def safe_path(p: str) -> Path:
     """Resolve a workspace-relative path and reject paths outside the workspace."""
     path = (WORK_DIR / p).resolve()
@@ -58,6 +83,22 @@ def check_cmd(cmd: str):
     dengerous = ["rm", "sudo", "shutdown", "reboot", "> /dev/"]
     if any(d in cmd for d in dengerous):
         raise ValueError("dangerous command blocked")
+
+
+@tool
+def update_todo(todos: list[TodoItem], runtime: ToolRuntime) -> Command:
+    """Replace the agent todo list with the provided items."""
+    return Command(
+        update={
+            "todos": todos,
+            "messages": [
+                ToolMessage(
+                    content=f"updated todo list: {todos}",
+                    tool_call_id=runtime.tool_call_id,
+                )
+            ],
+        }
+    )
 
 
 @tool
@@ -120,11 +161,11 @@ def edit_file(path: str, old_text: str, new_text: str) -> str:
         return f"Error: {e}"
 
 
-tools = [run_bash, read_file, write_file, edit_file]
-tool_node = ToolNode([run_bash, read_file, write_file, edit_file])
+tools = [run_bash, read_file, write_file, edit_file, update_todo]
+tool_node = ToolNode([run_bash, read_file, write_file, edit_file, update_todo])
 
 
-def call_llm(state: MessagesState) -> dict[str, list[AIMessage]]:
+def call_llm(state: AgentState) -> dict[str, list[AIMessage]]:
     """Invoke the chat model with tool binding and return the next AI message."""
     llm_with_tools = LLM_MODEL.bind_tools(tools)
     response = llm_with_tools.invoke(state["messages"])

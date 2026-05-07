@@ -6,7 +6,7 @@ import argparse
 import os
 
 SYSTEM_PROMPT = f"""
-You are a coding agent at {os.getcwd()}. Use bash to solve tasks. Act, don't explain.
+You are a coding agent at {os.getcwd()}. Use given tools to solve tasks. Act, don't explain.
 """
 
 
