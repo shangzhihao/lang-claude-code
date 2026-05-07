@@ -41,7 +41,7 @@ development.
 ### 3. Smoke test the package
 
 ```sh
-uv run -m lagents.xxx
+uv run lagents v{xx}
 ```
 
 ## Reference

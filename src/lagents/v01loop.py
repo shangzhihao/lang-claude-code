@@ -24,7 +24,7 @@ policy, hooks, and lifecycle controls on top.
 import os
 import subprocess
 
-from langchain_core.messages import AIMessage, HumanMessage
+from langchain_core.messages import AIMessage
 from langchain_deepseek import ChatDeepSeek
 from pydantic import SecretStr
 from langgraph.graph import StateGraph, MessagesState, START, END
@@ -93,23 +93,3 @@ graph_builder.add_edge("tools", "llm")
 
 
 graph = graph_builder.compile()
-
-
-def main():
-    state: MessagesState = {"messages": []}
-    while True:
-        try:
-            query = input("\033[36ms01 >> \033[0m")
-        except EOFError, KeyboardInterrupt:
-            break
-        if query.strip().lower() in ("q", "exit", ""):
-            break
-        state["messages"].append(HumanMessage(content=query))
-        before = len(state["messages"])
-        res = graph.invoke(state)
-        for message in res["messages"][before:]:
-            message.pretty_print()
-
-
-if __name__ == "__main__":
-    main()
