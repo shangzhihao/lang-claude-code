@@ -1,24 +1,22 @@
 """
-Version 6: compact message history before each model call.
+Version 7: add repo-local skills on top of the compacting agent.
 
-This version keeps the checkpointed thread from `v05`, then adds two
-layers of context compaction.
+This module keeps the checkpointed agent flow from earlier versions and
+extends it in two directions:
 
-Layer 1 performs a cheap pass over older tool results:
+1. It exposes workspace tools for shell access, file edits, todo state,
+   and nested agent invocation.
+2. It lets the model discover and load optional instructions from
+   `skills/*/SKILL.md` via a cached skill loader.
+
+It also retains the two-stage conversation compaction pipeline:
 
     recent messages  --> keep as-is
-    old tool output  --> "[previous: used run_bash]"
-    preserved tools  --> keep full content
+    old tool output  --> compact to a short placeholder
+    oversized history --> save transcript and replace with a summary
 
-Layer 2 watches the overall history size. When the thread grows beyond
-the threshold, it saves the older transcript to disk, summarizes that
-history with the model, and rebuilds the message list as:
-
-    summary of old history
-    + recent messages
-
-The goal is to preserve continuity while reducing how much raw history
-gets sent back to the model on later turns.
+The goal is to preserve continuity while reducing prompt size and making
+specialized skills available on demand.
 """
 
 from enum import StrEnum, auto
