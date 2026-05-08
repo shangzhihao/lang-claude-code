@@ -1,26 +1,42 @@
 """
-Version 5: add memory with a checkpointed thread.
+Version 6: compact message history before each model call.
 
-The graph now keeps conversation state and todo state across turns by
-reusing a thread id with an in-memory checkpointer:
+This version keeps the checkpointed thread from `v05`, then adds two
+layers of context compaction.
 
-    user turn 1 --> graph.stream(..., thread_id=abc123)
-                               |
-                               v
-                        checkpoint store
-                               |
-    user turn 2 --> graph.stream(..., thread_id=abc123)
+Layer 1 performs a cheap pass over older tool results:
 
-The system prompt is reapplied on each call, while the checkpoint
-restores the thread's accumulated working context.
+    recent messages  --> keep as-is
+    old tool output  --> "[previous: used run_bash]"
+    preserved tools  --> keep full content
+
+Layer 2 watches the overall history size. When the thread grows beyond
+the threshold, it saves the older transcript to disk, summarizes that
+history with the model, and rebuilds the message list as:
+
+    summary of old history
+    + recent messages
+
+The goal is to preserve continuity while reducing how much raw history
+gets sent back to the model on later turns.
 """
 
 from enum import StrEnum, auto
+import json
 import os
+import time
 import subprocess
+from collections.abc import Mapping
 from typing import cast
-
-from langchain_core.messages import AIMessage, ToolMessage, SystemMessage, HumanMessage
+from langchain_core.messages import (
+    AIMessage,
+    AnyMessage,
+    RemoveMessage,
+    ToolMessage,
+    SystemMessage,
+    HumanMessage,
+    messages_to_dict,
+)
 from langchain_deepseek import ChatDeepSeek
 from langgraph.graph.state import CompiledStateGraph, RunnableConfig
 from langgraph.types import Command
@@ -35,20 +51,25 @@ from uuid import uuid1
 
 load_dotenv(override=True)
 
-
-MAX_RES_LEN = 10000
-MAX_LINES = 500
-
 API_KEY = os.getenv("DEEPSEEK_API_KEY")
 MODEL_NAME = os.getenv("DEEPSEEK_MODEL")
+
 if API_KEY is None:
     raise ValueError("no deepseek api key found.")
 API_KEY = SecretStr(API_KEY)
 if MODEL_NAME is None:
     MODEL_NAME = "deepseek-chat"
-LLM_MODEL = ChatDeepSeek(model=MODEL_NAME, api_key=API_KEY)
-WORK_DIR = Path.cwd()
 
+LLM_MODEL = ChatDeepSeek(model=MODEL_NAME, api_key=API_KEY)
+
+MAX_RES_LEN = 10000
+MAX_LINES = 500
+MAX_MESSAGE_CHAR = 80_000
+THRESHOLD = 50_000
+
+TRANSSCRIPT_DIR = Path(".transcripts")
+DEFAULT_PRESERVE_TOOLS = {"read_file"}
+WORK_DIR = Path.cwd()
 
 SYSTEM_PROMPT = f"""
 You are a coding agent at {WORK_DIR}.
@@ -78,7 +99,7 @@ class AgentState(MessagesState):
     todos: list[TodoItem]
 
 
-def _get_todo(state: dict[str, object]) -> list[TodoItem]:
+def _get_todo(state: Mapping[str, object]) -> list[TodoItem]:
     todos = state.get("todos")
     return cast(list[TodoItem], todos) if isinstance(todos, list) else []
 
@@ -195,10 +216,169 @@ def edit_file(path: str, old_text: str, new_text: str) -> str:
         return f"Error: {e}"
 
 
+# ---------------------------------------------------------------------
+# Layer 1: micro_compact
+# ---------------------------------------------------------------------
+
+
+def buid_tool_dict(messages: list[AnyMessage]) -> dict[str, str]:
+    res: dict[str, str] = {}
+    for msg in messages:
+        if not isinstance(msg, AIMessage):
+            continue
+        for tool_call in msg.tool_calls or []:
+            tool_call_id = tool_call.get("id")
+            tool_call_name = tool_call.get("name")
+            if tool_call_id and tool_call_name:
+                res[tool_call_id] = tool_call_name
+    return res
+
+
+def find_tool_msg_idx(messages: list[AnyMessage]) -> list[int]:
+    return [i for i, msg in enumerate(messages) if isinstance(msg, ToolMessage)]
+
+
+def should_compact_tool_msg(
+    msg: ToolMessage,
+    *,
+    tool_name: str,
+    min_content_length: int,
+    preserve_tools: set[str],
+):
+    if tool_name in preserve_tools:
+        return False
+    if not isinstance(msg.content, str):
+        return False
+    if len(msg.content) <= min_content_length:
+        return False
+    return True
+
+
+def compact_tool_msg(msg: ToolMessage, *, tool_name: str) -> ToolMessage:
+    return msg.model_copy(update={"content": f"[previous: used {tool_name}]"})
+
+
+def micro_compact(
+    messages: list[AnyMessage],
+    *,
+    keep_recent: int = 3,
+    min_content_length: int = 100,
+    preserve_tools: set[str] | None = None,
+) -> list[AnyMessage]:
+    preserve_tools = preserve_tools or DEFAULT_PRESERVE_TOOLS
+    tool_msg_idx = find_tool_msg_idx(messages)
+    if len(tool_msg_idx) <= keep_recent:
+        return messages
+    tool_id_to_name = buid_tool_dict(messages)
+    # Only older tool outputs are eligible; recent ones stay verbatim for continuity.
+    idx_to_compact = set(tool_msg_idx[:-keep_recent])
+    compacted: list[AnyMessage] = []
+
+    for i, msg in enumerate(messages):
+        if not isinstance(msg, ToolMessage):
+            compacted.append(msg)
+            continue
+        if i not in idx_to_compact:
+            compacted.append(msg)
+            continue
+        tool_name = tool_id_to_name.get(msg.tool_call_id, "unknown tool")
+        if not should_compact_tool_msg(
+            msg,
+            tool_name=tool_name,
+            min_content_length=min_content_length,
+            preserve_tools=preserve_tools,
+        ):
+            compacted.append(msg)
+            continue
+        compacted.append(compact_tool_msg(msg, tool_name=tool_name))
+    return compacted
+
+
+# ---------------------------------------------------------------------
+# Layer 2: auto_compact
+# ---------------------------------------------------------------------
+
+
+def save_transcript(
+    messages: list[AnyMessage], *, transcript_dir: Path = TRANSSCRIPT_DIR
+) -> Path:
+    transcript_dir.mkdir(parents=True, exist_ok=True)
+    trapnscript_path = transcript_dir / f"transcript_{int(time.time())}.jsonl"
+    with trapnscript_path.open("w", encoding="utf-8") as f:
+        for msg_dict in messages_to_dict(messages):
+            f.write(json.dumps(msg_dict, ensure_ascii=False, default=str) + "\n")
+    return trapnscript_path
+
+
+def render_msg_for_summary(
+    messages: list[AnyMessage], *, max_chars=MAX_MESSAGE_CHAR
+) -> str:
+    text = json.dumps(messages_to_dict(messages), ensure_ascii=False, default=str)
+    return text[-max_chars:]
+
+
+def summarize_msg(messages: list[AnyMessage], *, max_chars=MAX_MESSAGE_CHAR):
+    msg_text = render_msg_for_summary(messages, max_chars=max_chars)
+    prompt = (
+        "Summarize this conversation for continuity. Include:\n"
+        "1) What was accomplished\n"
+        "2) Current state\n"
+        "3) Key decisions made\n"
+        "4) Important files, functions, bugs, constraints, and next steps\n\n"
+        "Be concise, but preserve critical details.\n\n"
+        f"{msg_text}"
+    )
+    response = LLM_MODEL.invoke([HumanMessage(content=prompt)])
+    return str(response.content).strip()
+
+
+def auto_compact(
+    messages: list[AnyMessage],
+    *,
+    transcript_dir=TRANSSCRIPT_DIR,
+    max_chars=MAX_MESSAGE_CHAR,
+) -> list[AnyMessage]:
+    transcript_path = save_transcript(messages, transcript_dir=transcript_dir)
+    summary = summarize_msg(messages, max_chars=max_chars)
+    # Replace the old transcript with a summary, but keep a full on-disk record.
+    return [
+        HumanMessage(
+            content=f"Previous conversation compressed. Full transcript at: {transcript_path}\n\n"
+            f"{summary}"
+        )
+    ]
+
+
+def estimate_tokens(messages: list[AnyMessage]) -> int:
+    """
+    Rough estimate, same idea as the original file:
+    about 4 characters per token.
+    """
+    return (
+        len(json.dumps(messages_to_dict(messages), ensure_ascii=False, default=str))
+        // 4
+    )
+
+
+def compact_if_need(state: AgentState) -> dict:
+    keep_recent = 5
+    todos = _get_todo(state)
+    messages = state["messages"]
+    messages = micro_compact(messages)
+    if estimate_tokens(messages) <= THRESHOLD:
+        return {"messages": messages, "todos": todos}
+    old_msg = messages[:-keep_recent]
+    recent_msg = messages[-keep_recent:]
+    compressed = auto_compact(old_msg)
+    # LangGraph needs explicit removals before we rebuild the retained history.
+    to_remove = [RemoveMessage(id=msg.id) for msg in messages if msg.id is not None]
+    rebuilt_recent = [msg.model_copy(update={"id": uuid1().hex}) for msg in recent_msg]
+    return {"messages": [*to_remove, *compressed, *rebuilt_recent], "todos": todos}
+
+
 def call_llm(state: AgentState) -> dict[str, list[AIMessage]]:
     """Invoke the chat model with tool binding and return the next AI message."""
     llm_with_tools = LLM_MODEL.bind_tools(tools)
-    # Reapply the system prompt on every turn; the checkpoint stores only thread state.
     response = llm_with_tools.invoke(
         [SystemMessage(content=SYSTEM_PROMPT), *state["messages"]]
     )
@@ -240,15 +420,15 @@ tool_node = ToolNode(
 
 def create_agent() -> CompiledStateGraph:
     graph_builder = StateGraph(AgentState)
+    graph_builder.add_node("compact", compact_if_need)
     graph_builder.add_node("llm", call_llm)
     graph_builder.add_node("tools", tool_node)
 
-    graph_builder.add_edge(START, "llm")
+    graph_builder.add_edge(START, "compact")
+    graph_builder.add_edge("compact", "llm")
     graph_builder.add_conditional_edges("llm", tools_condition)
+    graph_builder.add_edge("tools", "compact")
 
-    graph_builder.add_edge("tools", "llm")
-
-    # The checkpointer gives repeated `graph.stream(...)` calls a shared thread.
     return graph_builder.compile(checkpointer=InMemorySaver())
 
 
@@ -259,7 +439,6 @@ def create_agent() -> CompiledStateGraph:
 
 def main() -> int:
     graph = create_agent()
-    # Keep one thread id for the whole REPL session so turns share memory.
     config: RunnableConfig = {"configurable": {"thread_id": uuid1().hex}}
     while True:
         try:

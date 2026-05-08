@@ -1,8 +1,8 @@
 """
-This is from: shareAI-lab/learn-claude-code.
+Version 4: delegate work to a fresh subagent.
 
-Spawn a child agent with fresh messages=[]. The child works in its own
-context, sharing the filesystem, then returns only a summary to the parent.
+A parent agent can spawn a child with a clean message history, let it
+use the shared filesystem and tools, and keep only the final summary:
 
     Parent agent                     Subagent
     +------------------+             +------------------+
@@ -17,6 +17,8 @@ context, sharing the filesystem, then returns only a summary to the parent.
               |
     Parent context stays clean.
     Subagent context is discarded.
+
+This keeps the parent focused while still allowing side tasks to branch.
 """
 
 from enum import StrEnum, auto
@@ -60,6 +62,11 @@ Prefer tools over prose.
 """
 
 
+# ---------------------------------------------------------------------
+# Todo State
+# ---------------------------------------------------------------------
+
+
 class TodoState(StrEnum):
     TODO = auto()
     DOING = auto()
@@ -75,6 +82,11 @@ class AgentState(MessagesState):
     todos: list[TodoItem]
 
 
+def _get_todo(state: dict[str, object]) -> list[TodoItem]:
+    todos = state.get("todos")
+    return cast(list[TodoItem], todos) if isinstance(todos, list) else []
+
+
 def safe_path(p: str) -> Path:
     """Resolve a workspace-relative path and reject paths outside the workspace."""
     path = (WORK_DIR / p).resolve()
@@ -88,6 +100,11 @@ def check_cmd(cmd: str):
     dengerous = ["rm", "sudo", "shutdown", "reboot", "> /dev/"]
     if any(d in cmd for d in dengerous):
         raise ValueError("dangerous command blocked")
+
+
+# ---------------------------------------------------------------------
+# Tools
+# ---------------------------------------------------------------------
 
 
 @tool
@@ -109,7 +126,7 @@ def update_todo(todos: list[TodoItem], runtime: ToolRuntime) -> Command:
 @tool
 def get_todo(runtime: ToolRuntime) -> Command:
     """Get the current agent todo list."""
-    todos = runtime.state["todos"]
+    todos = _get_todo(runtime.state)
     return Command(
         update={
             "messages": [
@@ -192,6 +209,7 @@ def call_llm(state: AgentState) -> dict[str, list[AIMessage]]:
 @tool
 def invoke_agent(task: str) -> str | list[str | dict[object, object]]:
     """Run a fresh child agent on the given task and return its final response."""
+    # Child runs start with empty history so the parent keeps a smaller transcript.
     agent = create_agent()
     state: AgentState = {"messages": [], "todos": []}
     state["messages"].append(SystemMessage(content=SYSTEM_PROMPT))
@@ -218,7 +236,13 @@ tool_node = ToolNode(
 )
 
 
+# ---------------------------------------------------------------------
+# Graph
+# ---------------------------------------------------------------------
+
+
 def create_agent() -> CompiledStateGraph:
+    # Build the same graph shape for both the interactive parent and child agents.
     graph_builder = StateGraph(AgentState)
     graph_builder.add_node("llm", call_llm)
     graph_builder.add_node("tools", tool_node)
@@ -229,6 +253,11 @@ def create_agent() -> CompiledStateGraph:
     graph_builder.add_edge("tools", "llm")
 
     return graph_builder.compile()
+
+
+# ---------------------------------------------------------------------
+# REPL
+# ---------------------------------------------------------------------
 
 
 def main() -> int:
@@ -242,6 +271,7 @@ def main() -> int:
             break
         if query.strip().lower() in ("q", "exit", ""):
             break
+        # Track the message boundary so we only print the current turn's output.
         before = len(state["messages"])
         state["messages"].append(HumanMessage(content=query))
         state = cast(AgentState, graph.invoke(state))

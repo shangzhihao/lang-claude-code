@@ -18,6 +18,7 @@ v02 = "agents.v02tools:main"
 v03 = "agents.v03todo:main"
 v04 = "agents.v04subagent:main"
 v05 = "agents.v05mem:main"
+v06 = "agents.v06context_compact:main"
 
 [build-system]
 requires = ["uv_build>=0.11.8,<0.12.0"]

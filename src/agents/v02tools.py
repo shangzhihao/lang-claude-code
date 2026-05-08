@@ -1,8 +1,8 @@
 """
-This is from: shareAI-lab/learn-claude-code.
+Version 2: the same loop, now with a small toolset.
 
-The agent loop from s01 didn't change. We just added tools to the array
-and a dispatch map to route calls.
+The control flow does not change. We just add more tools and route
+calls through a dispatcher:
 
     +----------+      +-------+      +------------------+
     |   User   | ---> |  LLM  | ---> | Tool Dispatch    |
@@ -14,7 +14,7 @@ and a dispatch map to route calls.
                           tool_result| }                |
                                      +------------------+
 
-Key insight: "The loop didn't change at all. I just added tools."
+Adding capabilities should not require changing the core agent loop.
 """
 
 import os
@@ -47,6 +47,11 @@ WORK_DIR = Path.cwd()
 SYSTEM_PROMPT = f"You are a coding agent at {WORK_DIR}. Use tools to solve tasks. Act, don't explain."
 
 
+# ---------------------------------------------------------------------
+# Path And Command Guards
+# ---------------------------------------------------------------------
+
+
 def safe_path(p: str) -> Path:
     """Resolve a workspace-relative path and reject paths outside the workspace."""
     path = (WORK_DIR / p).resolve()
@@ -60,6 +65,11 @@ def check_cmd(cmd: str):
     dengerous = ["rm", "sudo", "shutdown", "reboot", "> /dev/"]
     if any(d in cmd for d in dengerous):
         raise ValueError("dangerous command blocked")
+
+
+# ---------------------------------------------------------------------
+# Tools
+# ---------------------------------------------------------------------
 
 
 @tool
@@ -123,6 +133,7 @@ def edit_file(path: str, old_text: str, new_text: str) -> str:
 
 
 tools = [run_bash, read_file, write_file, edit_file]
+# The graph stays the same as v01; only the tool palette grows.
 tool_node = ToolNode([run_bash, read_file, write_file, edit_file])
 
 
@@ -131,6 +142,11 @@ def call_llm(state: MessagesState) -> dict[str, list[AIMessage]]:
     llm_with_tools = LLM_MODEL.bind_tools(tools)
     response = llm_with_tools.invoke(state["messages"])
     return {"messages": [response]}
+
+
+# ---------------------------------------------------------------------
+# Graph
+# ---------------------------------------------------------------------
 
 
 graph_builder = StateGraph(MessagesState)
@@ -146,6 +162,11 @@ graph_builder.add_edge("tools", "llm")
 graph = graph_builder.compile()
 
 
+# ---------------------------------------------------------------------
+# REPL
+# ---------------------------------------------------------------------
+
+
 def main() -> int:
     state: MessagesState = {"messages": []}
     state["messages"].append(SystemMessage(content=SYSTEM_PROMPT))
@@ -156,6 +177,7 @@ def main() -> int:
             break
         if query.strip().lower() in ("q", "exit", ""):
             break
+        # Track the message boundary so we only print the current turn's output.
         before = len(state["messages"])
         state["messages"].append(HumanMessage(content=query))
         state = cast(MessagesState, graph.invoke(state))

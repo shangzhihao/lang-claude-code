@@ -1,8 +1,8 @@
 """
-This is from: shareAI-lab/learn-claude-code.
+Version 3: add explicit task tracking with todo state.
 
-The model tracks its own progress via a TodoManager. A nag reminder
-forces it to keep updating when it forgets.
+The agent now tracks its own progress in structured state, and a
+reminder can push it to keep that state current:
 
     +----------+      +-------+      +---------+
     |   User   | ---> |  LLM  | ---> | Tools   |
@@ -22,7 +22,7 @@ forces it to keep updating when it forgets.
                     if rounds_since_todo >= 3:
                       inject <reminder>
 
-Key insight: "The agent can track its own progress -- and I can see it."
+This makes the working plan visible to both the model and the user.
 """
 
 from enum import StrEnum, auto
@@ -65,6 +65,11 @@ Prefer tools over prose.
 """
 
 
+# ---------------------------------------------------------------------
+# Todo State
+# ---------------------------------------------------------------------
+
+
 class TodoState(StrEnum):
     TODO = auto()
     DOING = auto()
@@ -76,8 +81,14 @@ class TodoItem(BaseModel):
     status: TodoState
 
 
+# Extend the base message state with structured progress tracking.
 class AgentState(MessagesState):
     todos: list[TodoItem]
+
+
+def _get_todo(state: dict[str, object]) -> list[TodoItem]:
+    todos = state.get("todos")
+    return cast(list[TodoItem], todos) if isinstance(todos, list) else []
 
 
 def safe_path(p: str) -> Path:
@@ -93,6 +104,11 @@ def check_cmd(cmd: str):
     dengerous = ["rm", "sudo", "shutdown", "reboot", "> /dev/"]
     if any(d in cmd for d in dengerous):
         raise ValueError("dangerous command blocked")
+
+
+# ---------------------------------------------------------------------
+# Tools
+# ---------------------------------------------------------------------
 
 
 @tool
@@ -114,7 +130,7 @@ def update_todo(todos: list[TodoItem], runtime: ToolRuntime) -> Command:
 @tool
 def get_todo(runtime: ToolRuntime) -> Command:
     """Get the current agent todo list."""
-    todos = runtime.state["todos"]
+    todos = _get_todo(runtime.state)
     return Command(
         update={
             "messages": [
@@ -188,6 +204,7 @@ def edit_file(path: str, old_text: str, new_text: str) -> str:
 
 
 tools = [run_bash, read_file, write_file, edit_file, update_todo, get_todo]
+# Todo tools live beside the normal file and shell tools in the same loop.
 tool_node = ToolNode(
     [run_bash, read_file, write_file, edit_file, update_todo, get_todo]
 )
@@ -198,6 +215,11 @@ def call_llm(state: AgentState) -> dict[str, list[AIMessage]]:
     llm_with_tools = LLM_MODEL.bind_tools(tools)
     response = llm_with_tools.invoke(state["messages"])
     return {"messages": [response]}
+
+
+# ---------------------------------------------------------------------
+# Graph
+# ---------------------------------------------------------------------
 
 
 graph_builder = StateGraph(AgentState)
@@ -213,6 +235,11 @@ graph_builder.add_edge("tools", "llm")
 graph = graph_builder.compile()
 
 
+# ---------------------------------------------------------------------
+# REPL
+# ---------------------------------------------------------------------
+
+
 def main() -> int:
     state: AgentState = {"messages": [], "todos": []}
     state["messages"].append(SystemMessage(content=SYSTEM_PROMPT))
@@ -223,6 +250,7 @@ def main() -> int:
             break
         if query.strip().lower() in ("q", "exit", ""):
             break
+        # Track the message boundary so we only print the current turn's output.
         before = len(state["messages"])
         state["messages"].append(HumanMessage(content=query))
         state = cast(AgentState, graph.invoke(state))

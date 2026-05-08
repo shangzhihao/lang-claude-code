@@ -1,7 +1,7 @@
 """
-This is from: shareAI-lab/learn-claude-code.
+Version 1: the minimal tool loop.
 
-The entire secret of an AI coding agent in one pattern:
+The core pattern is still just:
 
     while stop_reason == "tool_use":
         response = LLM(messages, tools)
@@ -17,9 +17,8 @@ The entire secret of an AI coding agent in one pattern:
                           +---------------+
                           (loop continues)
 
-This is the core loop: feed tool results back to the model
-until the model decides to stop. Production agents layer
-policy, hooks, and lifecycle controls on top.
+Feed tool results back into the model until it stops asking to act.
+Everything else in later versions builds on top of this loop.
 """
 
 import os
@@ -51,6 +50,11 @@ WORK_DIR = Path.cwd()
 SYSTEM_PROMPT = f"You are a coding agent at {WORK_DIR}. Use bash to solve tasks. Act, don't explain."
 
 
+# ---------------------------------------------------------------------
+# Tools
+# ---------------------------------------------------------------------
+
+
 @tool
 def run_bash(cmd: str) -> str:
     """Run a shell command in the current working directory and return output."""
@@ -74,6 +78,7 @@ def run_bash(cmd: str) -> str:
         return f"Error: {e}"
 
 
+# Keep tool execution isolated from the LLM node so the graph can loop cleanly.
 tool_node = ToolNode(
     [
         run_bash,
@@ -85,6 +90,11 @@ def call_llm(state: MessagesState) -> dict[str, list[AIMessage]]:
     llm_with_tools = LLM_MODEL.bind_tools([run_bash])
     response = llm_with_tools.invoke(state["messages"])
     return {"messages": [response]}
+
+
+# ---------------------------------------------------------------------
+# Graph
+# ---------------------------------------------------------------------
 
 
 graph_builder = StateGraph(MessagesState)
@@ -100,6 +110,11 @@ graph_builder.add_edge("tools", "llm")
 graph = graph_builder.compile()
 
 
+# ---------------------------------------------------------------------
+# REPL
+# ---------------------------------------------------------------------
+
+
 def main() -> int:
     state: MessagesState = {"messages": []}
     state["messages"].append(SystemMessage(content=SYSTEM_PROMPT))
@@ -110,6 +125,7 @@ def main() -> int:
             break
         if query.strip().lower() in ("q", "exit", ""):
             break
+        # Track the message boundary so we only print the current turn's output.
         before = len(state["messages"])
         state["messages"].append(HumanMessage(content=query))
         state = cast(MessagesState, graph.invoke(state))
