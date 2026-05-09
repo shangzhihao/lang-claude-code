@@ -47,7 +47,7 @@ from langgraph.prebuilt import ToolNode, tools_condition
 from langchain.tools import ToolRuntime, tool
 from pathlib import Path
 from langgraph.checkpoint.memory import InMemorySaver
-from uuid import uuid1
+from uuid import uuid4
 
 load_dotenv(override=True)
 
@@ -72,10 +72,15 @@ DEFAULT_PRESERVE_TOOLS = {"read_file"}
 WORK_DIR = Path.cwd()
 
 SYSTEM_PROMPT = f"""
-You are a coding agent at {WORK_DIR}.
-Use the todo tool to plan multi-step tasks.
-Mark in_progress before starting, completed when done.
-Prefer tools over prose.
+You are a coding agent running in {WORK_DIR}.
+Use shell and file tools to inspect, edit, and verify work inside this workspace.
+Use the todo tools for multi-step tasks: create a short list,
+mark one item doing before working on it, and mark items done as they finish.
+This agent has checkpointed memory and automatic context compaction.
+Treat summaries and compacted tool results as continuity hints,
+and re-read files or rerun commands when exact details matter.
+Use invoke_agent for isolated side tasks that can run in a fresh child context.
+Prefer tool use over prose, and finish with a concise summary of the result.
 """
 
 
@@ -372,7 +377,7 @@ def compact_if_need(state: AgentState) -> dict:
     compressed = auto_compact(old_msg)
     # LangGraph needs explicit removals before we rebuild the retained history.
     to_remove = [RemoveMessage(id=msg.id) for msg in messages if msg.id is not None]
-    rebuilt_recent = [msg.model_copy(update={"id": uuid1().hex}) for msg in recent_msg]
+    rebuilt_recent = [msg.model_copy(update={"id": uuid4().hex}) for msg in recent_msg]
     return {"messages": [*to_remove, *compressed, *rebuilt_recent], "todos": todos}
 
 
@@ -439,7 +444,7 @@ def create_agent() -> CompiledStateGraph:
 
 def main() -> int:
     graph = create_agent()
-    config: RunnableConfig = {"configurable": {"thread_id": uuid1().hex}}
+    config: RunnableConfig = {"configurable": {"thread_id": uuid4().hex}}
     while True:
         try:
             query = input("\033[36m>> \033[0m")

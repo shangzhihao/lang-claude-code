@@ -31,7 +31,7 @@ from langgraph.prebuilt import ToolNode, tools_condition
 from langchain.tools import ToolRuntime, tool
 from pathlib import Path
 from langgraph.checkpoint.memory import InMemorySaver
-from uuid import uuid1
+from uuid import uuid4
 
 load_dotenv(override=True)
 
@@ -51,10 +51,14 @@ WORK_DIR = Path.cwd()
 
 
 SYSTEM_PROMPT = f"""
-You are a coding agent at {WORK_DIR}.
-Use the todo tool to plan multi-step tasks.
-Mark in_progress before starting, completed when done.
-Prefer tools over prose.
+You are a coding agent running in {WORK_DIR}.
+Use shell and file tools to inspect, edit, and verify work inside this workspace.
+Use the todo tools for multi-step tasks: create a short list,
+mark one item doing before working on it, and mark items done as they finish.
+This agent has checkpointed thread memory across REPL turns; use the remembered context,
+but re-check files when exact current contents matter.
+Use invoke_agent for isolated side tasks that can run in a fresh child context.
+Prefer tool use over prose, and finish with a concise summary of the result.
 """
 
 
@@ -260,7 +264,7 @@ def create_agent() -> CompiledStateGraph:
 def main() -> int:
     graph = create_agent()
     # Keep one thread id for the whole REPL session so turns share memory.
-    config: RunnableConfig = {"configurable": {"thread_id": uuid1().hex}}
+    config: RunnableConfig = {"configurable": {"thread_id": uuid4().hex}}
     while True:
         try:
             query = input("\033[36m>> \033[0m")

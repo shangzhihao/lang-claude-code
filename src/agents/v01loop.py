@@ -47,7 +47,13 @@ if MODEL_NAME is None:
 LLM_MODEL = ChatDeepSeek(model=MODEL_NAME, api_key=API_KEY)
 WORK_DIR = Path.cwd()
 
-SYSTEM_PROMPT = f"You are a coding agent at {WORK_DIR}. Use bash to solve tasks. Act, don't explain."
+SYSTEM_PROMPT = f"""
+You are a coding agent running in {WORK_DIR}.
+You only have one tool: run_bash.
+Use bash commands to inspect the workspace, make progress, and verify results.
+Prefer acting through the tool over explaining plans.
+When the task is complete, briefly report what changed or what you found.
+"""
 
 
 # ---------------------------------------------------------------------
