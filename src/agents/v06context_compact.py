@@ -367,18 +367,27 @@ def estimate_tokens(messages: list[AnyMessage]) -> int:
 
 def compact_if_need(state: AgentState) -> dict:
     keep_recent = 5
-    todos = _get_todo(state)
     messages = state["messages"]
-    messages = micro_compact(messages)
-    if estimate_tokens(messages) <= THRESHOLD:
-        return {"messages": messages, "todos": todos}
-    old_msg = messages[:-keep_recent]
-    recent_msg = messages[-keep_recent:]
+    compacted_messages = micro_compact(messages)
+    if estimate_tokens(compacted_messages) <= THRESHOLD:
+        changed_messages = [
+            new_msg
+            for old_msg, new_msg in zip(messages, compacted_messages, strict=True)
+            if old_msg != new_msg
+        ]
+        return {"messages": changed_messages} if changed_messages else {}
+
+    old_msg = compacted_messages[:-keep_recent]
+    recent_msg = compacted_messages[-keep_recent:]
     compressed = auto_compact(old_msg)
     # LangGraph needs explicit removals before we rebuild the retained history.
-    to_remove = [RemoveMessage(id=msg.id) for msg in messages if msg.id is not None]
+    to_remove = [
+        RemoveMessage(id=msg.id)
+        for msg in compacted_messages
+        if msg.id is not None
+    ]
     rebuilt_recent = [msg.model_copy(update={"id": uuid4().hex}) for msg in recent_msg]
-    return {"messages": [*to_remove, *compressed, *rebuilt_recent], "todos": todos}
+    return {"messages": [*to_remove, *compressed, *rebuilt_recent]}
 
 
 def call_llm(state: AgentState) -> dict[str, list[AIMessage]]:
@@ -458,6 +467,8 @@ def main() -> int:
             stream_mode="updates",
         ):
             for _, data in chunk.items():
+                if data is None:
+                    continue
                 for message in data.get("messages", []):
                     message.pretty_print()
     return 0
