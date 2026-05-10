@@ -21,6 +21,8 @@ v05 = "agents.v05mem:main"
 v06 = "agents.v06context_compact:main"
 v07 = "agents.v07skills:main"
 v08 = "agents.v08bg_task:main"
+v09 = "agents.v09team:main"
+test-team = "test_team:main"
 
 [build-system]
 requires = ["uv_build>=0.11.8,<0.12.0"]
