@@ -67,7 +67,7 @@ MAX_LINES = 500
 MAX_MESSAGE_CHAR = 80_000
 THRESHOLD = 50_000
 
-TRANSSCRIPT_DIR = Path(".transcripts")
+TRANSCRIPT_DIR = Path(".transcripts")
 SKILLS_DIR = Path("skills")
 DEFAULT_PRESERVE_TOOLS = {"read_file"}
 WORK_DIR = Path.cwd()
@@ -108,8 +108,8 @@ def safe_path(p: str) -> Path:
 
 def check_cmd(cmd: str):
     """Block obviously dangerous shell commands before execution."""
-    dengerous = ["rm", "sudo", "shutdown", "reboot", "> /dev/"]
-    if any(d in cmd for d in dengerous):
+    dangerous = ["rm", "sudo", "shutdown", "reboot", "> /dev/"]
+    if any(d in cmd for d in dangerous):
         raise ValueError("dangerous command blocked")
 
 
@@ -164,7 +164,7 @@ def run_bash(cmd: str) -> str:
             timeout=120,
         )
         output = (r.stdout + r.stderr).strip()
-        return output[:MAX_RES_LEN] if output else "no ouput"
+        return output[:MAX_RES_LEN] if output else "no output"
     except subprocess.TimeoutExpired:
         return "Error: timeout (120s)"
     except (FileNotFoundError, OSError, ValueError) as e:
@@ -295,7 +295,7 @@ Available skills:
 # ---------------------------------------------------------------------
 
 
-def buid_tool_dict(messages: list[AnyMessage]) -> dict[str, str]:
+def build_tool_dict(messages: list[AnyMessage]) -> dict[str, str]:
     res: dict[str, str] = {}
     for msg in messages:
         if not isinstance(msg, AIMessage):
@@ -343,7 +343,7 @@ def micro_compact(
     tool_msg_idx = find_tool_msg_idx(messages)
     if len(tool_msg_idx) <= keep_recent:
         return messages
-    tool_id_to_name = buid_tool_dict(messages)
+    tool_id_to_name = build_tool_dict(messages)
     # Only older tool outputs are eligible; recent ones stay verbatim for continuity.
     idx_to_compact = set(tool_msg_idx[:-keep_recent])
     compacted: list[AnyMessage] = []
@@ -374,14 +374,14 @@ def micro_compact(
 
 
 def save_transcript(
-    messages: list[AnyMessage], *, transcript_dir: Path = TRANSSCRIPT_DIR
+    messages: list[AnyMessage], *, transcript_dir: Path = TRANSCRIPT_DIR
 ) -> Path:
     transcript_dir.mkdir(parents=True, exist_ok=True)
-    trapnscript_path = transcript_dir / f"transcript_{int(time.time())}.jsonl"
-    with trapnscript_path.open("w", encoding="utf-8") as f:
+    transcript_path = transcript_dir / f"transcript_{int(time.time())}.jsonl"
+    with transcript_path.open("w", encoding="utf-8") as f:
         for msg_dict in messages_to_dict(messages):
             f.write(json.dumps(msg_dict, ensure_ascii=False, default=str) + "\n")
-    return trapnscript_path
+    return transcript_path
 
 
 def render_msg_for_summary(
@@ -409,7 +409,7 @@ def summarize_msg(messages: list[AnyMessage], *, max_chars=MAX_MESSAGE_CHAR):
 def auto_compact(
     messages: list[AnyMessage],
     *,
-    transcript_dir=TRANSSCRIPT_DIR,
+    transcript_dir=TRANSCRIPT_DIR,
     max_chars=MAX_MESSAGE_CHAR,
 ) -> list[AnyMessage]:
     transcript_path = save_transcript(messages, transcript_dir=transcript_dir)

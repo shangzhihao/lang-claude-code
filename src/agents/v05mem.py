@@ -97,8 +97,8 @@ def safe_path(p: str) -> Path:
 
 def check_cmd(cmd: str):
     """Block obviously dangerous shell commands before execution."""
-    dengerous = ["rm", "sudo", "shutdown", "reboot", "> /dev/"]
-    if any(d in cmd for d in dengerous):
+    dangerous = ["rm", "sudo", "shutdown", "reboot", "> /dev/"]
+    if any(d in cmd for d in dangerous):
         raise ValueError("dangerous command blocked")
 
 
@@ -153,7 +153,7 @@ def run_bash(cmd: str) -> str:
             timeout=120,
         )
         output = (r.stdout + r.stderr).strip()
-        return output[:MAX_RES_LEN] if output else "no ouput"
+        return output[:MAX_RES_LEN] if output else "no output"
     except subprocess.TimeoutExpired:
         return "Error: timeout (120s)"
     except (FileNotFoundError, OSError, ValueError) as e:

@@ -64,8 +64,8 @@ When the task is complete, briefly report what changed or what you found.
 @tool
 def run_bash(cmd: str) -> str:
     """Run a shell command in the current working directory and return output."""
-    dengerous = ["rm", "sudo", "shutdown", "reboot", "> /dev/"]
-    if any(d in cmd for d in dengerous):
+    dangerous = ["rm", "sudo", "shutdown", "reboot", "> /dev/"]
+    if any(d in cmd for d in dangerous):
         return "Error: dangerous command blocked"
     try:
         r = subprocess.run(
@@ -77,7 +77,7 @@ def run_bash(cmd: str) -> str:
             timeout=120,
         )
         output = (r.stdout + r.stderr).strip()
-        return output[:MAX_RES_LEN] if output else "no ouput"
+        return output[:MAX_RES_LEN] if output else "no output"
     except subprocess.TimeoutExpired:
         return "Error: timeout (120s)"
     except (FileNotFoundError, OSError) as e:
