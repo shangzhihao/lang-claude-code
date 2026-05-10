@@ -530,6 +530,16 @@ def create_agent() -> CompiledStateGraph:
 # ---------------------------------------------------------------------
 
 
+def print_stream_messages(
+    chunk: Mapping[str, Mapping[str, list[AnyMessage]] | None],
+) -> None:
+    for node_name, data in chunk.items():
+        if node_name == "compact" or data is None:
+            continue
+        for message in data.get("messages", []):
+            message.pretty_print()
+
+
 def main() -> int:
     graph = create_agent()
     config: RunnableConfig = {"configurable": {"thread_id": uuid4().hex}}
@@ -545,11 +555,7 @@ def main() -> int:
             config=config,
             stream_mode="updates",
         ):
-            for _, data in chunk.items():
-                if data is None:
-                    continue
-                for message in data.get("messages", []):
-                    message.pretty_print()
+            print_stream_messages(chunk)
     return 0
 
 
