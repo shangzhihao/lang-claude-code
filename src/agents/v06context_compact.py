@@ -51,12 +51,12 @@ from uuid import uuid4
 
 load_dotenv(override=True)
 
-API_KEY = os.getenv("DEEPSEEK_API_KEY")
+API_KEY_ENV = os.getenv("DEEPSEEK_API_KEY")
 MODEL_NAME = os.getenv("DEEPSEEK_MODEL")
 
-if API_KEY is None:
+if API_KEY_ENV is None:
     raise ValueError("no deepseek api key found.")
-API_KEY = SecretStr(API_KEY)
+API_KEY = SecretStr(API_KEY_ENV)
 if MODEL_NAME is None:
     MODEL_NAME = "deepseek-chat"
 
@@ -382,9 +382,7 @@ def compact_if_need(state: AgentState) -> dict:
     compressed = auto_compact(old_msg)
     # LangGraph needs explicit removals before we rebuild the retained history.
     to_remove = [
-        RemoveMessage(id=msg.id)
-        for msg in compacted_messages
-        if msg.id is not None
+        RemoveMessage(id=msg.id) for msg in compacted_messages if msg.id is not None
     ]
     rebuilt_recent = [msg.model_copy(update={"id": uuid4().hex}) for msg in recent_msg]
     return {"messages": [*to_remove, *compressed, *rebuilt_recent]}

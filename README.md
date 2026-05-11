@@ -131,6 +131,26 @@ DEEPSEEK_MODEL=deepseek-chat
 `DEEPSEEK_MODEL` is optional. If it is missing, the examples default to
 `deepseek-chat`.
 
+## Development Checks
+
+Install the git hooks:
+
+```sh
+uv run pre-commit install
+```
+
+Run the full hook suite manually:
+
+```sh
+uv run pre-commit run --all-files
+```
+
+Run the type checker directly:
+
+```sh
+uv run mypy src
+```
+
 ## Running Examples
 
 Start any version with its script name:

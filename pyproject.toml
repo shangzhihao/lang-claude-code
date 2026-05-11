@@ -37,3 +37,10 @@ exclude = [".venv", "**/__pycache__"]
 ignore = [".venv"]
 venvPath = "."
 venv = ".venv"
+
+[dependency-groups]
+dev = [
+    "mypy>=2.0.0",
+    "pre-commit>=4.6.0",
+    "types-pyyaml>=6.0.12.20260510",
+]

@@ -51,12 +51,12 @@ from uuid import uuid4
 
 load_dotenv(override=True)
 
-API_KEY = os.getenv("DEEPSEEK_API_KEY")
+API_KEY_ENV = os.getenv("DEEPSEEK_API_KEY")
 MODEL_NAME = os.getenv("DEEPSEEK_MODEL")
 
-if API_KEY is None:
+if API_KEY_ENV is None:
     raise ValueError("no deepseek api key found.")
-API_KEY = SecretStr(API_KEY)
+API_KEY = SecretStr(API_KEY_ENV)
 if MODEL_NAME is None:
     MODEL_NAME = "deepseek-chat"
 
