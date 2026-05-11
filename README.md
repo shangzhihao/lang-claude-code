@@ -90,12 +90,10 @@ practical LangGraph APIs behind it.
 │   ├── v07skills.py
 │   ├── v08bg_task.py
 │   └── v09team.py
-├── skills/
-│   ├── repo-orient/
-│   ├── small-fix/
-│   └── test-and-report/
-└── agentspace/
-    └── scratch checks and local experiment files
+└── skills/
+    ├── repo-orient/
+    ├── small-fix/
+    └── test-and-report/
 ```
 
 The source files are intentionally duplicated more than a normal library would
